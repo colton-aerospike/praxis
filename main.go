@@ -18,17 +18,12 @@ var (
 	port              = 3000
 	namespace         = "bar"
 	set               = "myset"
-	batch             bool
-	write             bool
-	recordCount       int
 	key               int
 	bins              string
-	del               bool
 	user              string
 	password          string
 	authMode          string
 	servicesAlternate bool
-	times             int
 	indexBin          string
 	indexVal          string
 	runQuery          bool
