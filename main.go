@@ -385,10 +385,13 @@ func singleWriteRecord(client *as.Client, k int, mapContents map[int]interface{}
 	writePolicy.SocketTimeout = time.Second * 2
 
 	mapPolicy := as.NewMapPolicy(as.MapOrder.UNORDERED, as.MapWriteMode.CREATE_ONLY)
+	mapPutOps := []*as.Operation{}
 
-	mapBin := as.NewBin("mapBin", mapContents)
+	for key, value := range mapContents {
+		mapPutOps = append(mapPutOps, as.MapPutOp(mapPolicy, "mapBin", as.NewValue(key), as.NewValue(value)))
+	}
 
-	rec, err := client.Operate(writePolicy, key, as.MapPutOp(mapPolicy, "mapBin", k, as.PutOp(mapBin)), as.MapRemoveByKeyOp("mapBin", k, as.MapReturnType.NONE))
+	rec, err := client.Operate(writePolicy, key, mapPutOps...)
 
 	if err != nil {
 		log.Print("Unable to write single record", err)
