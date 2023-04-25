@@ -25,7 +25,7 @@ var (
 	authMode          string
 	servicesAlternate bool
 	indexBin          string
-	indexVal          string
+	indexVal          int
 	runQuery          bool
 	clientChan        chan int
 	sleepTimer        time.Duration
@@ -47,7 +47,7 @@ func main() {
 	flag.StringVar(&authMode, "A", "internal", "AuthMode for Aerospike (needs to be implemented, hardcoded internal currently)")
 	flag.BoolVar(&servicesAlternate, "sa", false, "Enable --alternate-services; default false")
 	flag.StringVar(&indexBin, "iB", "", "Index Bin name for SI query")
-	flag.StringVar(&indexVal, "iV", "", "Index Bin value for SI query")
+	flag.IntVar(&indexVal, "iV", 0, "Index Bin value for SI query")
 	flag.BoolVar(&runQuery, "q", false, "Run short SI query; default false")
 	clientChanSize := flag.Int("chan", 500, "Size of channel for goroutines")
 	flag.DurationVar(&sleepTimer, "sT", time.Second, "Time to sleep in between executions of workload")
@@ -71,29 +71,63 @@ func doJob(client *as.Client) {
 	log.Print("Starting job.")
 	for {
 		// Inserts and Writes
-		for i := 0; i < cap(clientChan)/5; i++ {
-			rand.Seed(time.Now().UnixMicro())
-			pKey := rand.Intn(key)
-			bins := "junk:str:8,randInt:int:200,color:blue"
-			clientChan <- 1
-			go singleWriteRecord(client, pKey, bins)
-		}
 
-		for i := 0; i < cap(clientChan)/5; i++ {
-			rand.Seed(time.Now().UnixMicro())
-			pKey := rand.Intn(key)
-			bins := "junk:str:8,randInt:int:200,color:red"
-			clientChan <- 1
-			go singleWriteRecord(client, pKey, bins)
-		}
+		/*
+			for i := 0; i < cap(clientChan)/5; i++ {
+				rand.Seed(time.Now().UnixMicro())
+				pKey := rand.Intn(key)
+				bins := "junk:str:8,randInt:int:200,color:blue"
+				clientChan <- 1
+				go singleWriteRecord(client, pKey, bins)
+			}
 
+			for i := 0; i < cap(clientChan)/5; i++ {
+				rand.Seed(time.Now().UnixMicro())
+				pKey := rand.Intn(key)
+				bins := "junk:str:8,randInt:int:200,color:red"
+				clientChan <- 1
+				go singleWriteRecord(client, pKey, bins)
+			}
+
+			for i := 0; i < cap(clientChan)/10; i++ {
+				rand.Seed(time.Now().UnixMicro())
+				pKey := rand.Intn(key)
+				bins := "junk:str:8,randInt:int:200,color:green"
+				clientChan <- 1
+				go singleWriteRecord(client, pKey, bins)
+			}
+		*/
 		for i := 0; i < cap(clientChan)/10; i++ {
 			rand.Seed(time.Now().UnixMicro())
 			pKey := rand.Intn(key)
-			bins := "junk:str:8,randInt:int:200,color:green"
+
+			testMap := map[int]interface{}{
+				123456: map[string]interface{}{
+					"timestamp": time.Now().Format("2006-01-02"),
+					"foo":       "bar",
+				},
+				9876543210: map[string]interface{}{
+					"name":      "John Doe",
+					"staticEnv": os.Getenv("STATIC"),
+				},
+				8675309: map[string]interface{}{
+					"song":     "Jenny",
+					"artist":   "Tommy Tutone",
+					"released": "1981",
+					"genre":    "Classic Rock",
+				},
+			}
+
 			clientChan <- 1
-			go singleWriteRecord(client, pKey, bins)
+			go singleWriteRecord(client, pKey, testMap)
 		}
+
+		// for i := 0; i < cap(clientChan)/10; i++ {
+		// 	rand.Seed(time.Now().UnixMicro())
+		// 	pKey := rand.Intn(key)
+		// 	clientChan <- 1
+		// 	go runUdf(client, pKey)
+		// }
 
 		// Reads
 		for i := 0; i < cap(clientChan)/5; i++ {
@@ -104,11 +138,12 @@ func doJob(client *as.Client) {
 		}
 
 		// SI Query
-		for i := 0; i < cap(clientChan)/50; i++ {
-			clientChan <- 1
-			go runShortQuery(client)
+		if runQuery {
+			for i := 0; i < cap(clientChan)/50; i++ {
+				clientChan <- 1
+				go runShortQuery(client)
+			}
 		}
-
 		time.Sleep(sleepTimer)
 	}
 
@@ -138,14 +173,40 @@ func initClient() *as.Client {
 	return client
 }
 
+func runUdf(client *as.Client, k int) {
+	defer func() { <-clientChan }()
+
+	key, err := as.NewKey(namespace, set, k)
+
+	if err != nil {
+		log.Print("Unable to generate digest")
+		return
+	}
+
+	writePolicy := as.NewWritePolicy(0, 0)
+	writePolicy.SendKey = true
+	writePolicy.Expiration = 360
+	writePolicy.TotalTimeout = time.Second * 2
+	writePolicy.SocketTimeout = time.Second * 2
+
+	result, err := client.Execute(writePolicy, key, "sonic-functions", "fetchOrCreate2", as.NewStringValue("color"), as.NewStringValue("BLACK"), as.NewIntegerValue(10000))
+
+	if err != nil {
+		log.Print("Unable to write single record", err)
+	}
+
+	//fmt.Println(rec)
+	log.Print("UDF", result)
+}
+
 func runShortQuery(client *as.Client) {
 	defer func() { <-clientChan }()
 
 	queryPolicy := as.NewQueryPolicy()
-	queryPolicy.ShortQuery = true
+	queryPolicy.ShortQuery = false
 	queryPolicy.MaxRetries = 0
 
-	filter := as.NewEqualFilter(indexBin, indexVal)
+	filter := as.NewContainsFilter("mapBin", as.ICT_MAPKEYS, indexVal)
 
 	stmt := as.NewStatement(namespace, set)
 	stmt.Filter = filter
@@ -272,6 +333,7 @@ func singleReadRecord(client *as.Client, k int) *as.Record {
 	return rec
 }
 
+/*
 func singleWriteRecord(client *as.Client, k int, bins string) {
 	defer func() { <-clientChan }()
 
@@ -285,7 +347,7 @@ func singleWriteRecord(client *as.Client, k int, bins string) {
 	if len(bins) > 0 {
 		binOps = parseBinsToPutOperations(bins)
 	} else {
-		bins = "age:24"
+		bins = "num:123"
 		binOps = parseBinsToPutOperations(bins)
 	}
 
@@ -296,6 +358,37 @@ func singleWriteRecord(client *as.Client, k int, bins string) {
 	writePolicy.SocketTimeout = time.Second * 2
 
 	rec, err := client.Operate(writePolicy, key, binOps...)
+
+	if err != nil {
+		log.Print("Unable to write single record", err)
+	}
+
+	//fmt.Println(rec)
+	_ = rec
+}
+*/
+
+func singleWriteRecord(client *as.Client, k int, mapContents map[int]interface{}) {
+	defer func() { <-clientChan }()
+
+	key, err := as.NewKey(namespace, set, k)
+
+	if err != nil {
+		log.Print("Unable to generate digest")
+		return
+	}
+
+	writePolicy := as.NewWritePolicy(0, 0)
+	writePolicy.SendKey = true
+	writePolicy.Expiration = 360
+	writePolicy.TotalTimeout = time.Second * 2
+	writePolicy.SocketTimeout = time.Second * 2
+
+	mapPolicy := as.NewMapPolicy(as.MapOrder.UNORDERED, as.MapWriteMode.CREATE_ONLY)
+
+	mapBin := as.NewBin("mapBin", mapContents)
+
+	rec, err := client.Operate(writePolicy, key, as.MapPutOp(mapPolicy, "mapBin", k, as.PutOp(mapBin)), as.MapRemoveByKeyOp("mapBin", k, as.MapReturnType.NONE))
 
 	if err != nil {
 		log.Print("Unable to write single record", err)
