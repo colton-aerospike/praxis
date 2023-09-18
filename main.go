@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"math/rand"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	asl "github.com/aerospike/aerospike-client-go/logger"
 	as "github.com/aerospike/aerospike-client-go/v6"
+	"github.com/aerospike/aerospike-client-go/v6/types"
 )
 
 var (
@@ -35,6 +37,9 @@ const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 func main() {
 	asl.Logger.SetLevel(asl.DEBUG)
+	// Set local directory
+
+	as.SetLuaPath("/opt/praxis/udf/")
 	// arguments
 	flag.StringVar(&host, "h", host, "Remote host")
 	flag.IntVar(&port, "p", port, "Remote port")
@@ -62,6 +67,15 @@ func main() {
 
 	clientChan = make(chan int, *clientChanSize)
 	client := initClient()
+	// Register the UDF
+	// Error on Language arg
+	task, err := client.RegisterUDFFromFile(nil, "./udf/example.lua", "example.lua", as.LUA)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Wait for the task to complete
+	<-task.OnComplete()
 	doJob(client)
 	defer client.Close()
 
@@ -72,43 +86,54 @@ func doJob(client *as.Client) {
 	for {
 		// Inserts and Writes
 
-		/*
-			for i := 0; i < cap(clientChan)/5; i++ {
-				rand.Seed(time.Now().UnixMicro())
-				pKey := rand.Intn(key)
-				bins := "junk:str:8,randInt:int:200,color:blue"
-				clientChan <- 1
-				go singleWriteRecord(client, pKey, bins)
-			}
+		for i := 0; i < cap(clientChan)/100; i++ {
+			rand.Seed(time.Now().UnixMicro())
+			pKey := rand.Intn(key)
+			bins := "junk:str:8,randInt:int:200,color:blue"
+			clientChan <- 1
+			go singleWriteRecord(client, pKey, bins)
+		}
 
-			for i := 0; i < cap(clientChan)/5; i++ {
-				rand.Seed(time.Now().UnixMicro())
-				pKey := rand.Intn(key)
-				bins := "junk:str:8,randInt:int:200,color:red"
-				clientChan <- 1
-				go singleWriteRecord(client, pKey, bins)
-			}
+		for i := 0; i < cap(clientChan)/100; i++ {
+			rand.Seed(time.Now().UnixMicro())
+			pKey := rand.Intn(key)
+			bins := "junk:str:8,randInt:int:200,color:red"
+			clientChan <- 1
+			go singleWriteRecord(client, pKey, bins)
+		}
 
-			for i := 0; i < cap(clientChan)/10; i++ {
-				rand.Seed(time.Now().UnixMicro())
-				pKey := rand.Intn(key)
-				bins := "junk:str:8,randInt:int:200,color:green"
-				clientChan <- 1
-				go singleWriteRecord(client, pKey, bins)
-			}
-		*/
-		for i := 0; i < cap(clientChan)/10; i++ {
+		for i := 0; i < cap(clientChan)/100; i++ {
+			rand.Seed(time.Now().UnixMicro())
+			pKey := rand.Intn(key)
+			bins := "junk:str:8,randInt:int:200,color:green"
+			clientChan <- 1
+			go singleWriteRecord(client, pKey, bins)
+		}
+
+		for i := 0; i < cap(clientChan)/50; i++ {
 			rand.Seed(time.Now().UnixMicro())
 			pKey := rand.Intn(key)
 
-			testMap := map[int]interface{}{
-				123456: map[string]interface{}{
+			// rec := singleReadRecord(client, pKey)
+			// if rec != nil {
+			// 	v, ok := rec.Bins["mapBin"].(map[interface{}]interface{})
+			// 	if ok {
+			// 		if len(v) >= 3 {
+			// 			break
+			// 		}
+			// 	}
+			// }
+
+			timestamp := time.Now().Unix()
+
+			testMap := map[interface{}]interface{}{
+				timestamp + 360: map[string]interface{}{
 					"timestamp": time.Now().Format("2006-01-02"),
 					"foo":       "bar",
 				},
-				9876543210: map[string]interface{}{
+				timestamp + 120: map[string]interface{}{
 					"name":      "John Doe",
-					"staticEnv": os.Getenv("STATIC"),
+					"staticEnv": "STATIC",
 				},
 				8675309: map[string]interface{}{
 					"song":     "Jenny",
@@ -119,7 +144,8 @@ func doJob(client *as.Client) {
 			}
 
 			clientChan <- 1
-			go singleWriteRecord(client, pKey, testMap)
+			go oldWrite(client, pKey, testMap)
+			//go singleWriteRecord(client, pKey, testMap)
 		}
 
 		// for i := 0; i < cap(clientChan)/10; i++ {
@@ -129,8 +155,8 @@ func doJob(client *as.Client) {
 		// 	go runUdf(client, pKey)
 		// }
 
-		// Reads
-		for i := 0; i < cap(clientChan)/5; i++ {
+		//Reads
+		for i := 0; i < cap(clientChan)/100; i++ {
 			rand.Seed(time.Now().UnixMicro())
 			pKey := rand.Intn(key)
 			clientChan <- 1
@@ -139,9 +165,13 @@ func doJob(client *as.Client) {
 
 		// SI Query
 		if runQuery {
-			for i := 0; i < cap(clientChan)/50; i++ {
+			for i := 0; i < cap(clientChan)/150; i++ {
 				clientChan <- 1
 				go runShortQuery(client)
+			}
+			for i := 0; i < cap(clientChan)/200; i++ {
+				clientChan <- 1
+				go runAggrQuery(client)
 			}
 		}
 		time.Sleep(sleepTimer)
@@ -158,7 +188,10 @@ func initClient() *as.Client {
 	clientPolicy.UseServicesAlternate = servicesAlternate
 	clientPolicy.LoginTimeout = time.Second * 2
 	clientPolicy.Timeout = time.Second * 2
-	clientPolicy.ConnectionQueueSize = 1000
+	clientPolicy.ConnectionQueueSize = 3000
+	clientPolicy.MinConnectionsPerNode = 300
+	clientPolicy.MaxErrorRate = 0
+	clientPolicy.ErrorRateWindow = 0
 	client, err := as.NewClientWithPolicy(clientPolicy, host, port)
 
 	if err != nil {
@@ -173,6 +206,23 @@ func initClient() *as.Client {
 	return client
 }
 
+func runAggrQuery(client *as.Client) {
+	defer func() { <-clientChan }()
+
+	stmt := as.NewStatement(namespace, set)
+	stmt.SetFilter(as.NewContainsFilter("mapBin", as.ICT_MAPKEYS, as.NewValue(8675309)))
+
+	queryPolicy := as.NewQueryPolicy()
+	queryPolicy.SleepBetweenRetries = 300
+
+	_, err := client.QueryAggregate(queryPolicy, stmt, "example", "count")
+
+	if err != nil {
+		fmt.Println(err)
+	}
+
+}
+
 func runUdf(client *as.Client, k int) {
 	defer func() { <-clientChan }()
 
@@ -185,9 +235,10 @@ func runUdf(client *as.Client, k int) {
 
 	writePolicy := as.NewWritePolicy(0, 0)
 	writePolicy.SendKey = true
-	writePolicy.Expiration = 360
+	writePolicy.Expiration = 1440
 	writePolicy.TotalTimeout = time.Second * 2
 	writePolicy.SocketTimeout = time.Second * 2
+	writePolicy.MaxRetries = 0
 
 	result, err := client.Execute(writePolicy, key, "sonic-functions", "fetchOrCreate2", as.NewStringValue("color"), as.NewStringValue("BLACK"), as.NewIntegerValue(10000))
 
@@ -204,9 +255,10 @@ func runShortQuery(client *as.Client) {
 
 	queryPolicy := as.NewQueryPolicy()
 	queryPolicy.ShortQuery = false
-	queryPolicy.MaxRetries = 0
+	queryPolicy.MaxRetries = 2
+	//queryPolicy.MaxRecords = 5000
 
-	filter := as.NewContainsFilter("mapBin", as.ICT_MAPKEYS, indexVal)
+	filter := as.NewContainsFilter("mapBin", as.ICT_MAPKEYS, as.NewValue(8675309))
 
 	stmt := as.NewStatement(namespace, set)
 	stmt.Filter = filter
@@ -218,17 +270,41 @@ func runShortQuery(client *as.Client) {
 		return
 	}
 
+	count := 0
 	for res := range records.Results() {
 		if res.Err != nil {
 			// handle error here
 			log.Print("res.Err: ", res.Err)
 		} else {
-			// process record here
-			//fmt.Println(res)
+			count++
+			currentTime := time.Now().Unix()
+			updateRecord := false
+			v, ok := res.Record.Bins["mapBin"].(map[interface{}]interface{})
+			if ok {
+				for k := range v {
+					if i64, ok := k.(int64); ok {
+						if i64 != 8675309 && i64 < currentTime {
+							updateRecord = true
+						}
+					}
+
+				}
+				if updateRecord {
+					go updateMapRecord(client, res.Record.Key, v)
+				}
+
+			}
+			// if count > 5000 {
+			// 	break
+			// }
+
 		}
 	}
+	records.Close()
 
 }
+
+var maxUpdate = make(chan int, 500)
 
 func RandStringBytes(n int) string {
 	b := make([]byte, n)
@@ -327,13 +403,15 @@ func singleReadRecord(client *as.Client, k int) *as.Record {
 	rec, err := client.Get(readPolicy, key)
 
 	if err != nil {
-		log.Println("Unable to retrieve single record", err)
+		if !err.Matches(types.KEY_NOT_FOUND_ERROR) {
+			log.Println("Unable to retrieve single record", err)
+		}
+
 	}
 
 	return rec
 }
 
-/*
 func singleWriteRecord(client *as.Client, k int, bins string) {
 	defer func() { <-clientChan }()
 
@@ -366,9 +444,85 @@ func singleWriteRecord(client *as.Client, k int, bins string) {
 	//fmt.Println(rec)
 	_ = rec
 }
-*/
 
-func singleWriteRecord(client *as.Client, k int, mapContents map[int]interface{}) {
+/*
+	func singleWriteRecord(client *as.Client, k int, mapContents map[int64]interface{}) {
+		defer func() { <-clientChan }()
+
+		key, err := as.NewKey(namespace, set, k)
+
+		if err != nil {
+			log.Print("Unable to generate digest")
+			return
+		}
+
+		writePolicy := as.NewWritePolicy(0, 0)
+		writePolicy.SendKey = true
+		writePolicy.Expiration = 3600
+		writePolicy.TotalTimeout = time.Second * 2
+		writePolicy.SocketTimeout = time.Second * 2
+		writePolicy.RecordExistsAction = as.CREATE_ONLY
+
+		mapPolicy := as.NewMapPolicy(as.MapOrder.UNORDERED, as.MapWriteMode.CREATE_ONLY)
+
+		mapPutOps := []*as.Operation{}
+
+		for key, value := range mapContents {
+			mapPutOps = append(mapPutOps, as.MapPutOp(mapPolicy, "mapBin", as.NewValue(key), as.NewValue(value)))
+		}
+
+		rec, err := client.Operate(writePolicy, key, mapPutOps...)
+
+		if err != nil {
+			if !err.Matches(types.KEY_EXISTS_ERROR) {
+				log.Print("Unable to write single record", err)
+			}
+		}
+
+		//fmt.Println(rec)
+		_ = rec
+	}
+*/
+func updateMapRecord(client *as.Client, key *as.Key, mapContents map[interface{}]interface{}) {
+	defer func() { <-clientChan }()
+	defer func() { <-maxUpdate }()
+
+	writePolicy := as.NewWritePolicy(0, 0)
+	writePolicy.SendKey = true
+	writePolicy.Expiration = 3600
+	writePolicy.TotalTimeout = time.Second * 2
+	writePolicy.SocketTimeout = time.Second * 2
+
+	mapPolicy := as.NewMapPolicy(as.MapOrder.UNORDERED, as.MapWriteMode.CREATE_ONLY)
+
+	mapPutOps := []*as.Operation{}
+
+	timestamp := time.Now().Unix()
+
+	for mapKey, value := range mapContents {
+		mapKey, ok := mapKey.(int64)
+		if ok {
+			if mapKey < timestamp {
+				mapPutOps = append(mapPutOps, as.MapRemoveByKeyOp("mapBin", mapKey, as.MapReturnType.NONE))
+				mapPutOps = append(mapPutOps, as.MapPutOp(mapPolicy, "mapBin", as.NewValue(mapKey+360), as.NewValue(value)))
+			}
+		} else {
+			return
+		}
+
+	}
+
+	rec, err := client.Operate(writePolicy, key, mapPutOps...)
+
+	if err != nil {
+		log.Print("Unable to write single record", err)
+	}
+
+	//fmt.Println(rec)
+	_ = rec
+}
+
+func oldWrite(client *as.Client, k int, mapContents map[interface{}]interface{}) {
 	defer func() { <-clientChan }()
 
 	key, err := as.NewKey(namespace, set, k)
@@ -384,14 +538,11 @@ func singleWriteRecord(client *as.Client, k int, mapContents map[int]interface{}
 	writePolicy.TotalTimeout = time.Second * 2
 	writePolicy.SocketTimeout = time.Second * 2
 
-	mapPolicy := as.NewMapPolicy(as.MapOrder.UNORDERED, as.MapWriteMode.CREATE_ONLY)
-	mapPutOps := []*as.Operation{}
+	mapPolicy := as.NewMapPolicy(as.MapOrder.UNORDERED, as.MapWriteMode.UPDATE)
 
-	for key, value := range mapContents {
-		mapPutOps = append(mapPutOps, as.MapPutOp(mapPolicy, "mapBin", as.NewValue(key), as.NewValue(value)))
-	}
+	//mapBin := as.NewBin("mapBin", mapContents)
 
-	rec, err := client.Operate(writePolicy, key, mapPutOps...)
+	rec, err := client.Operate(writePolicy, key, as.MapPutOp(mapPolicy, "mapBin", 8675309, "new value 2nd client")) //as.MapPutItemsOp(mapPolicy, "mapBin", mapContents)) //, as.MapRemoveByKeyOp("mapBin", k, as.MapReturnType.NONE))
 
 	if err != nil {
 		log.Print("Unable to write single record", err)
