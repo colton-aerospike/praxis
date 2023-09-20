@@ -8,7 +8,6 @@ RUN go mod download
 
 COPY ./udf ./udf
 COPY main.go ./
-RUN GOOS=linux GOARCH=amd64 go build -o /opt/praxis/praxis
 ENV TZ=America/New_York
 
 RUN GOOS=linux GOARCH=amd64 go build -o /opt/praxis/praxis
