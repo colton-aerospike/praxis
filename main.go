@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"strconv"
 	"strings"
@@ -39,6 +41,9 @@ var (
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 func main() {
+	go func() {
+		fmt.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 	asl.Logger.SetLevel(asl.DEBUG)
 	// Set local directory
 
@@ -97,70 +102,212 @@ func createSindexs(client *as.Client) {
 }
 
 func createAggrRecords(client *as.Client) {
-	// Create batch of records
 	batchRecords := []aerospike.BatchRecordIfc{}
 
-	for i := 0; i < 1000; i++ {
-		key, err := as.NewKey("test", "test", i+1)
-		if err != nil {
-			log.Fatal(err)
-		}
+	mBin := []interface{}{map[string]interface{}{
+		"initVal":       "52428800",
+		"modifiedBy":    "smadmin",
+		"name":          "MONTHLY_CBU_DATA_BUCKET_OF",
+		"confProvState": 1,
+		"description":   "",
+		"isCarryOver":   0,
+		"modifiedDate":  int64(1682446306615),
+		"smProvState":   1,
+		"unitType":      "Byte",
+		"thrsPrfGrpId":  []string{"THR_PRO_CBU_D_MONTHLY_10MB"},
+		"distList": []map[string]interface{}{
+			{
+				"existOnME":  1,
+				"meName":     "KLT2",
+				"provState":  1,
+				"statusInfo": "Successfully distributed",
+			},
+			{
+				"existOnME":  1,
+				"meName":     "KLT1",
+				"provState":  1,
+				"statusInfo": "Successfully distributed",
+			},
+		},
+	}}
+	appCondition := map[string]interface{}{
+		"id":           "CL_MONTHLY_CBU_D_50MBB_OF||1000001",
+		"modifiedDate": int64(1682446313705),
+		"rules": []map[string]interface{}{
+			{
+				"actions": []map[string]interface{}{
+					{
+						"attributeInfo": map[string]interface{}{
+							"name":          "Charging-Service-Applicable",
+							"resultContext": "RATING",
+						},
+					},
+				},
+				"condContainer": map[string]interface{}{
+					"conditions": []map[string]interface{}{
+						{
+							"criteria": map[string]interface{}{
+								"name":          "Call-Type",
+								"sourceContext": "CALL_COMMON",
+							},
+							"operator": 0,
+							"value": map[string]interface{}{
+								"type":  3,
+								"value": "CallType.PS",
+							},
+						},
+						{
+							"criteria": map[string]interface{}{
+								"name":          "Get-Variable",
+								"sourceContext": "VARIABLES",
+							},
+							"criteriaArgs": []map[string]interface{}{
+								{
+									"name": "Name",
+									"value": map[string]interface{}{
+										"type":  0,
+										"value": "GVRoaming_Status",
+									},
+								},
+							},
+							"operator": 0,
+							"value": map[string]interface{}{
+								"type":  0,
+								"value": "Home",
+							},
+						},
+						{
+							"criteria": map[string]interface{}{
+								"name":          "Multiple-Services-Credit-Control.Rating-Group",
+								"sourceContext": "GY_MESSAGE",
+							},
+							"operator": 0,
+							"value": map[string]interface{}{
+								"type":  1,
+								"value": "200",
+							},
+						},
+					},
+					"operator": 0,
+				},
+				"modifiedDate":  int64(1682446306597),
+				"rulename":      "rule1",
+				"schemaVersion": 0,
+			},
+		},
+		"schemaVersion": 0,
+		"smProvState":   0,
+	}
+	unVersionedId := "CL_MONTHLY_CBU_D_50MBB_OF"
+	dummy := 0
+	schemaVersion := 23000000127
+	description := "CL_MONTHLY_CBU_D_50MBB_OF"
+	priority := "400"
+	smProvState := 0
 
-		binArray := []map[string]string{}
-		mBin := map[string]string{
-			"initValue":    "123456789",
-			"modifiedBy":   "Colton",
-			"name":         "MONTHLY_CBU_DATA_BUCKET_OF2",
-			"modifiedDate": time.Now().String(),
-		}
-		tBin := map[string]interface{}{
+	entityVersion := map[string]interface{}{
+		"baseVersion":   "0.0.0",
+		"entityVersnId": 1000001,
+		"forceVersion":  0,
+		"smEntityState": 0,
+		"startTime":     0,
+	}
+
+	secBalForFee := 0
+
+	passes := []map[string]interface{}{
+		{
+			"modifiedDate":  int64(1682446313705),
+			"schemaVersion": 0,
+			"smProvState":   0,
 			"tariff": map[string]interface{}{
 				"id":   "CL_MONTHLY_CBU_D_50MBB_OF_1000001_ChargingRules",
 				"name": "ChargingRules",
-				"rules": map[string]interface{}{
-					"actions": []map[string]interface{}{
-						{
-							"attributeInfo": map[string]interface{}{
-								"name":          "Bucket-Selection",
-								"resultContext": "RATING",
-							},
-							"parameters": []map[string]interface{}{
-								{
-									"name": "Data",
-									"value": map[string]interface{}{
-										"data": map[string]interface{}{
-											"type":  0,
-											"value": "MONTHLY_CBU_DATA_BUCKET_OF",
+				"rules": []map[string]interface{}{
+					{
+						"actions": []map[string]interface{}{
+							{
+								"attributeInfo": map[string]interface{}{
+									"name":          "Bucket-Selection",
+									"resultContext": "RATING",
+								},
+								"parameters": []map[string]interface{}{
+									{
+										"name": "Data",
+										"value": map[string]interface{}{
+											"data": map[string]interface{}{
+												"type":  0,
+												"value": "MONTHLY_CBU_DATA_BUCKET_OF",
+											},
 										},
 									},
 								},
 							},
 						},
+						"condContainer": map[string]interface{}{
+							"operator": 0,
+						},
+						"modifiedDate":  int64(1682446313691),
+						"rulename":      "rule1",
+						"schemaVersion": 0,
 					},
-					"condContainer": map[string]interface{}{
-						"operator": 0,
-					},
-					"modifiedDate":  1682446313691,
-					"rulename":      "rule1",
-					"schemaVersion": 0,
 				},
 			},
-		}
+		},
+	}
 
-		binArray = append(binArray, mBin)
-		globalBktDefBin := as.NewBin("globalBktDef", binArray)
-		globalBktDefOp := as.PutOp(globalBktDefBin)
-		tarriffBin := as.NewBin("tarriff", tBin)
-		tarriffOp := as.PutOp(tarriffBin)
+	name := "CL_MONTHLY_CBU_D_50MBB_OF||1000001"
+	modifiedDate := int64(1682446313717)
+	modifiedBy := "smadmin"
+	category := "DefaultCategory"
+	usageType := 0
 
-		record := as.NewBatchWrite(nil, key, globalBktDefOp, tarriffOp)
+	mapBin := as.NewBin("globalBktDef", mBin)
+	appBin := as.NewBin("appCondition", appCondition)
+	uBin := as.NewBin("unVersionedId", unVersionedId)
+	dummyBin := as.NewBin("dummy", dummy)
+	schBin := as.NewBin("schemaVersion", schemaVersion)
+	descBin := as.NewBin("description", description)
+	prioBin := as.NewBin("priority", priority)
+	smProvBin := as.NewBin("smProvState", smProvState)
+	entityBin := as.NewBin("entityVersion", entityVersion)
+	secBalBin := as.NewBin("secBalForFee", secBalForFee)
+	passesBin := as.NewBin("passes", passes)
+	nameBin := as.NewBin("name", name)
+	modifiedBin := as.NewBin("modifiedDate", modifiedDate)
+	modByBin := as.NewBin("modifiedBy", modifiedBy)
+	catBin := as.NewBin("category", category)
+	usageBin := as.NewBin("usageBin", usageType)
+
+	for i := 0; i < 1000; i++ {
+		key, _ := as.NewKey(namespace, set, i+1)
+
+		record := as.NewBatchWrite(nil, key, as.PutOp(mapBin),
+			as.PutOp(uBin),
+			as.PutOp(dummyBin),
+			as.PutOp(schBin),
+			as.PutOp(descBin),
+			as.PutOp(prioBin),
+			as.PutOp(smProvBin),
+			as.PutOp(entityBin),
+			as.PutOp(secBalBin),
+			as.PutOp(appBin),
+			as.PutOp(passesBin),
+			as.PutOp(nameBin),
+			as.PutOp(modifiedBin),
+			as.PutOp(modByBin),
+			as.PutOp(catBin),
+			as.PutOp(usageBin),
+		)
 		batchRecords = append(batchRecords, record)
+
 	}
 
 	err := client.BatchOperate(nil, batchRecords)
 	if err != nil {
 		log.Fatal(err)
 	}
+
 }
 
 func registerUdfs(client *as.Client) {
@@ -212,32 +359,32 @@ func doJob(client *as.Client) {
 			go singleWriteRecord(client, pKey, bins)
 		}
 
-		for i := 0; i < cap(clientChan)/50; i++ {
-			rand.Seed(time.Now().UnixMicro())
-			pKey := rand.Intn(key)
+		// for i := 0; i < cap(clientChan)/50; i++ {
+		// 	rand.Seed(time.Now().UnixMicro())
+		// 	pKey := rand.Intn(key)
 
-			timestamp := time.Now().Unix()
+		// 	timestamp := time.Now().Unix()
 
-			testMap := map[interface{}]interface{}{
-				timestamp + 360: map[string]interface{}{
-					"timestamp": time.Now().Format("2006-01-02"),
-					"foo":       "bar",
-				},
-				timestamp + 120: map[string]interface{}{
-					"name":      "John Doe",
-					"staticEnv": "STATIC",
-				},
-				8675309: map[string]interface{}{
-					"song":     "Jenny",
-					"artist":   "Tommy Tutone",
-					"released": "1981",
-					"genre":    "Classic Rock",
-				},
-			}
+		// 	testMap := map[interface{}]interface{}{
+		// 		timestamp + 360: map[string]interface{}{
+		// 			"timestamp": time.Now().Format("2006-01-02"),
+		// 			"foo":       "bar",
+		// 		},
+		// 		timestamp + 120: map[string]interface{}{
+		// 			"name":      "John Doe",
+		// 			"staticEnv": "STATIC",
+		// 		},
+		// 		8675309: map[string]interface{}{
+		// 			"song":     "Jenny",
+		// 			"artist":   "Tommy Tutone",
+		// 			"released": "1981",
+		// 			"genre":    "Classic Rock",
+		// 		},
+		// 	}
 
-			clientChan <- 1
-			go oldWrite(client, pKey, testMap)
-		}
+		// 	clientChan <- 1
+		// 	go oldWrite(client, pKey, testMap)
+		// }
 
 		if doUdf {
 			for i := 0; i < cap(clientChan)/10; i++ {
@@ -258,11 +405,11 @@ func doJob(client *as.Client) {
 
 		// SI Query
 		if doQuery {
-			for i := 0; i < cap(clientChan)/150; i++ {
+			for i := 0; i < 1; i++ {
 				clientChan <- 1
 				go runQuery(client, shortQuery)
 			}
-			for i := 0; i < cap(clientChan)/100; i++ {
+			for i := 0; i < 1; i++ {
 				clientChan <- 1
 				//go runAggrQuery(client)
 				go runAggrQuery2(client, "MONTHLY_CBU_DATA_BUCKET_OF")
@@ -304,12 +451,17 @@ func runAggrQuery2(client *as.Client, bin string) {
 	defer func() { <-clientChan }()
 
 	stmt := as.NewStatement(namespace, set)
-	stmt.SetFilter(as.NewEqualFilter("globalBktDef", bin, as.CtxListIndex(0), as.CtxMapKey(as.NewValue("name"))))
+	//stmt.SetFilter(as.NewEqualFilter("globalBktDef", bin, as.CtxListIndex(0), as.CtxMapKey(as.NewValue("name"))))
 
 	queryPolicy := as.NewQueryPolicy()
 	queryPolicy.SleepBetweenRetries = 300
 
-	_, err := client.QueryAggregate(queryPolicy, stmt, "dsc-query", "genericQuery") //, as.NewStringValue("0"))
+	_, err := client.QueryAggregate(queryPolicy, stmt, "dsc-query", "genericQuery",
+		as.NewIntegerValue(0),
+		as.NewIntegerValue(3),
+		as.NewValue([]interface{}{"globalBktDef", nil, "name"}),
+		as.NewIntegerValue(1),
+		as.NewValue([]interface{}{bin}))
 
 	if err != nil {
 		fmt.Println(err)
